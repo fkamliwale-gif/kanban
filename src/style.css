@@ -1,0 +1,22 @@
+<style>{`
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: Arial, sans-serif;
+    background: #f4f6f9;
+    color: #0b1a33;
+  }
+
+  .dashboard {
+    width: 100%;
+    min-height: 100vh;
+  }
+
+  /* ALL YOUR CSS HERE */
+
+`}</style>
