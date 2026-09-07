@@ -1,33 +1,33 @@
-const API_URL = "http://localhost/taskflow/backend/api.php";
+// Base URL for the PHP backend running under XAMPP.
+// Adjust the folder name if you place the backend somewhere other than
+// C:\xampp\htdocs\kanban-backend\backend
+export const API_BASE = "http://localhost/kanban-backend/backend/api";
 
-export type TaskFlowState = {
-  users?: unknown[];
-  members?: unknown[];
-  projects?: unknown[];
-  tasks?: unknown[];
-  activities?: unknown[];
-  settings?: Record<string, unknown>;
-};
+type ApiResponse<T> = { success: boolean; message: string; data: T };
 
-async function request(action: string, options: RequestInit = {}) {
-  const response = await fetch(`${API_URL}?action=${action}`, {
+export async function apiRequest<T = unknown>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    credentials: "include", // send the PHP session cookie
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options
   });
-  const result = await response.json();
-  if (!response.ok || !result.success) {
-    throw new Error(result.message || "TaskFlow API request failed");
+
+  let result: ApiResponse<T>;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error(`Server returned an unexpected response (status ${response.status}).`);
+  }
+
+  if (!result.success) {
+    throw new Error(result.message || "Request failed");
   }
   return result.data;
 }
 
-export async function loadStateFromMySQL(): Promise<TaskFlowState | null> {
-  return request("get_state");
-}
-
-export async function saveStateToMySQL(state: TaskFlowState): Promise<void> {
-  await request("save_state", {
-    method: "POST",
-    body: JSON.stringify(state)
-  });
+export function apiPost<T = unknown>(path: string, body: unknown): Promise<T> {
+  return apiRequest<T>(path, { method: "POST", body: JSON.stringify(body) });
 }

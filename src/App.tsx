@@ -1,5 +1,9 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { loadStateFromMySQL, saveStateToMySQL } from "./services/api";
+import { FormEvent, useEffect, useState } from "react";
+import * as authService from "./services/authService";
+import * as projectService from "./services/projectService";
+import * as taskService from "./services/taskService";
+import * as teamService from "./services/teamService";
+import { getDashboardData } from "./services/dashboardService";
 import "./App.css";
 
 type Page = "dashboard" | "projects" | "projectDetails" | "tasks" | "calendar" | "team" | "reports" | "activity" | "settings";
@@ -8,7 +12,9 @@ type TaskStatus = "To Do" | "In Progress" | "Review" | "Completed";
 type Priority = "Low" | "Medium" | "High" | "Critical";
 type Role = "Admin" | "Project Manager" | "Developer" | "Designer" | "Tester" | "Member";
 
-interface User { id: string; name: string; email: string; role: Role; password?: string; }
+// All ids below are kept as strings on the frontend (converted from the
+// MySQL INT ids) so the existing UI components don't need to change.
+interface User { id: string; name: string; email: string; role: Role; }
 interface TeamMember { id: string; name: string; email: string; role: Role; }
 interface Project { id: string; name: string; description: string; managerId: string; teamIds: string[]; startDate: string; dueDate: string; priority: Priority; status: ProjectStatus; }
 interface Task { id: string; title: string; description: string; projectId: string; assignedTo: string; priority: Priority; status: TaskStatus; startDate: string; dueDate: string; createdAt: string; }
@@ -19,99 +25,163 @@ const TASK_STATUSES: TaskStatus[] = ["To Do", "In Progress", "Review", "Complete
 const PRIORITIES: Priority[] = ["Low", "Medium", "High", "Critical"];
 const ROLES: Role[] = ["Admin", "Project Manager", "Developer", "Designer", "Tester", "Member"];
 
-const uid = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 const today = () => new Date().toISOString().slice(0, 10);
 const formatDate = (value: string) => value ? new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "-";
-const formatDateTime = (value: string) => new Date(value).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const formatDateTime = (value: string) => new Date(value.replace(" ", "T")).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 const isOverdue = (task: Task) => task.status !== "Completed" && !!task.dueDate && task.dueDate < today();
 
-const seedMembers: TeamMember[] = [
-  { id: "member-1", name: "Aisha Khan", email: "aisha@taskflow.com", role: "Project Manager" },
-  { id: "member-2", name: "Rahul Patil", email: "rahul@taskflow.com", role: "Developer" },
-  { id: "member-3", name: "Myra Shaikh", email: "myra@taskflow.com", role: "Designer" },
-  { id: "member-4", name: "Zoya Ansari", email: "zoya@taskflow.com", role: "Tester" },
-];
-const seedProjects: Project[] = [
-  { id: "PRJ-001", name: "College Event Portal", description: "Manage registrations, events and announcements.", managerId: "member-1", teamIds: ["member-1", "member-2", "member-3"], startDate: "2026-08-01", dueDate: "2026-09-20", priority: "High", status: "In Progress" },
-  { id: "PRJ-002", name: "Student Attendance", description: "Simple attendance tracking for students and teachers.", managerId: "member-1", teamIds: ["member-1", "member-2", "member-4"], startDate: "2026-08-15", dueDate: "2026-10-05", priority: "Medium", status: "Planning" },
-];
-const seedTasks: Task[] = [
-  { id: "TSK-001", title: "Create registration screen", description: "Build the registration form and validation.", projectId: "PRJ-001", assignedTo: "member-3", priority: "High", status: "Completed", startDate: "2026-08-02", dueDate: "2026-08-10", createdAt: "2026-08-02T10:00:00" },
-  { id: "TSK-002", title: "Build event API", description: "Prepare API structure for event data.", projectId: "PRJ-001", assignedTo: "member-2", priority: "Critical", status: "In Progress", startDate: "2026-08-08", dueDate: "2026-09-08", createdAt: "2026-08-08T11:30:00" },
-  { id: "TSK-003", title: "Test registration flow", description: "Test validation and successful submission.", projectId: "PRJ-001", assignedTo: "member-4", priority: "Medium", status: "Review", startDate: "2026-08-18", dueDate: "2026-09-12", createdAt: "2026-08-18T09:15:00" },
-  { id: "TSK-004", title: "Attendance wireframe", description: "Create the first attendance page wireframe.", projectId: "PRJ-002", assignedTo: "member-3", priority: "Medium", status: "To Do", startDate: "2026-08-20", dueDate: "2026-09-18", createdAt: "2026-08-20T14:00:00" },
-];
+// --- Mappers: MySQL rows (snake_case, numeric ids) -> UI types (camelCase, string ids) ---
+function mapProject(row: projectService.ProjectRow): Project {
+  return {
+    id: String(row.id),
+    name: row.project_name,
+    description: row.description || "",
+    managerId: row.manager_id !== null ? String(row.manager_id) : "",
+    teamIds: row.teamIds.map(String),
+    startDate: row.start_date || "",
+    dueDate: row.due_date || "",
+    priority: row.priority as Priority,
+    status: row.status as ProjectStatus,
+  };
+}
+function mapTask(row: taskService.TaskRow): Task {
+  return {
+    id: String(row.id),
+    title: row.title,
+    description: row.description || "",
+    projectId: String(row.project_id),
+    assignedTo: row.assigned_to !== null ? String(row.assigned_to) : "",
+    priority: row.priority as Priority,
+    status: row.status,
+    startDate: row.start_date || "",
+    dueDate: row.due_date || "",
+    createdAt: row.created_at,
+  };
+}
+function mapMember(row: teamService.MemberRow): TeamMember {
+  return { id: String(row.id), name: row.member_name, email: row.member_email, role: row.role as Role };
+}
+function mapActivity(row: { id: number; action: string; user_name?: string | null; created_at: string }): Activity {
+  return { id: String(row.id), action: row.action, user: row.user_name || "System", createdAt: row.created_at };
+}
 
 function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [user, setUser] = useState<User | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
-  const [ready, setReady] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
 
+  const loadDashboard = async () => {
+    const data = await getDashboardData();
+    setProjects(data.projects.map(mapProject));
+    setTasks(data.tasks.map(mapTask));
+    setMembers(data.members.map(mapMember));
+    setActivities(data.activities.map(mapActivity));
+  };
+
+  // On first load, ask the backend if a PHP session is already active.
   useEffect(() => {
-    const load = async () => {
+    (async () => {
       try {
-        const state = await loadStateFromMySQL();
-        if (state) {
-          setUsers(Array.isArray(state.users) && state.users.length ? state.users : [{ id: "user-admin", name: "Admin User", email: "admin@taskflow.com", role: "Admin", password: "123456" }]);
-          setMembers(Array.isArray(state.members) && state.members.length ? state.members : seedMembers);
-          setProjects(Array.isArray(state.projects) && state.projects.length ? state.projects : seedProjects);
-          setTasks(Array.isArray(state.tasks) && state.tasks.length ? state.tasks : seedTasks);
-          setActivities(Array.isArray(state.activities) ? state.activities : []);
-        } else {
-          setUsers([{ id: "user-admin", name: "Admin User", email: "admin@taskflow.com", role: "Admin", password: "123456" }]);
-          setMembers(seedMembers);
-          setProjects(seedProjects);
-          setTasks(seedTasks);
-          setActivities([]);
-        }
-      } catch (error) {
-        console.error("Could not load TaskFlow data from MySQL.", error);
-        setNotice("MySQL connection failed. Check XAMPP and PHP API.");
+        const session = await authService.checkSession();
+        setUser({ id: String(session.id), name: session.name, email: "", role: session.role as Role });
+        await loadDashboard();
+      } catch {
+        // no active session — show the login screen
       } finally {
-        setReady(true);
+        setCheckingSession(false);
       }
-    };
-    load();
+    })();
   }, []);
-
-  useEffect(() => {
-    if (!ready) return;
-    const timer = window.setTimeout(() => {
-      saveStateToMySQL({ users, members, projects, tasks, activities, settings: { notifications: true } })
-        .catch(error => console.error("Could not save TaskFlow data to MySQL.", error));
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [ready, users, members, projects, tasks, activities]);
 
   useEffect(() => { if (notice) { const t = window.setTimeout(() => setNotice(""), 2500); return () => clearTimeout(t); } }, [notice]);
 
-  const addActivity = (action: string) => {
-    setActivities(prev => [{ id: uid("act"), action, user: user?.name || "User", createdAt: new Date().toISOString() }, ...prev].slice(0, 100));
-  };
   const go = (next: Page) => { setPage(next); if (next !== "projectDetails") setSelectedProjectId(null); };
   const openProject = (id: string) => { setSelectedProjectId(id); setPage("projectDetails"); };
 
-  const createProject = (data: Omit<Project, "id">) => { const project = { ...data, id: `PRJ-${String(projects.length + 1).padStart(3, "0")}` }; setProjects(p => [...p, project]); addActivity(`Project created: ${project.name}`); setNotice("Project created successfully"); };
-  const updateProject = (id: string, data: Omit<Project, "id">) => { setProjects(p => p.map(x => x.id === id ? { ...data, id } : x)); addActivity(`Project updated: ${data.name}`); setNotice("Project updated"); };
-  const deleteProject = (id: string) => { const project = projects.find(x => x.id === id); if (!project) return; setProjects(p => p.filter(x => x.id !== id)); setTasks(t => t.filter(x => x.projectId !== id)); addActivity(`Project deleted: ${project.name}`); setNotice("Project deleted"); };
-  const createTask = (data: Omit<Task, "id" | "createdAt">) => { const task = { ...data, id: `TSK-${String(tasks.length + 1).padStart(3, "0")}`, createdAt: new Date().toISOString() }; setTasks(t => [...t, task]); addActivity(`Task created: ${task.title}`); setNotice("Task created successfully"); };
-  const updateTask = (id: string, data: Omit<Task, "id" | "createdAt">) => { const old = tasks.find(x => x.id === id); setTasks(t => t.map(x => x.id === id ? { ...data, id, createdAt: old?.createdAt || new Date().toISOString() } : x)); if (old && old.status !== data.status) addActivity(`Task status changed: ${data.title} → ${data.status}`); else addActivity(`Task updated: ${data.title}`); setNotice("Task updated"); };
-  const deleteTask = (id: string) => { const task = tasks.find(x => x.id === id); if (!task) return; setTasks(t => t.filter(x => x.id !== id)); addActivity(`Task deleted: ${task.title}`); setNotice("Task deleted"); };
-  const changeTaskStatus = (id: string, status: TaskStatus) => { const task = tasks.find(x => x.id === id); if (!task || task.status === status) return; setTasks(t => t.map(x => x.id === id ? { ...x, status } : x)); addActivity(`Task status changed: ${task.title} → ${status}`); setNotice(`Task moved to ${status}`); };
-  const addMember = (data: Omit<TeamMember, "id">) => { const member = { ...data, id: uid("member") }; setMembers(m => [...m, member]); addActivity(`Team member added: ${member.name}`); setNotice("Team member added"); };
-  const updateMember = (id: string, data: Omit<TeamMember, "id">) => { setMembers(m => m.map(x => x.id === id ? { ...data, id } : x)); addActivity(`Team member updated: ${data.name}`); setNotice("Team member updated"); };
-  const deleteMember = (id: string) => { const member = members.find(x => x.id === id); if (!member) return; setMembers(m => m.filter(x => x.id !== id)); addActivity(`Team member removed: ${member.name}`); setNotice("Team member removed"); };
+  const withNotice = async (action: () => Promise<void>, successMessage: string) => {
+    try {
+      await action();
+      await loadDashboard();
+      setNotice(successMessage);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Something went wrong");
+    }
+  };
 
-  const logout = () => { setUser(null); setPage("dashboard"); setSelectedProjectId(null); setNotice(""); };
+  const createProject = (data: Omit<Project, "id">) => withNotice(async () => {
+    await projectService.createProject({
+      name: data.name, description: data.description, status: data.status, priority: data.priority,
+      startDate: data.startDate, dueDate: data.dueDate,
+      teamIds: data.teamIds.map(Number), managerId: data.managerId ? Number(data.managerId) : null,
+    });
+  }, "Project created successfully");
 
-  if (!user) return <Auth users={users} setUsers={setUsers} onLogin={(u) => { setUser(u); setPage("dashboard"); }} />;
+  const updateProject = (id: string, data: Omit<Project, "id">) => withNotice(async () => {
+    await projectService.updateProject(Number(id), {
+      name: data.name, description: data.description, status: data.status, priority: data.priority,
+      startDate: data.startDate, dueDate: data.dueDate,
+      teamIds: data.teamIds.map(Number), managerId: data.managerId ? Number(data.managerId) : null,
+    });
+  }, "Project updated");
+
+  const deleteProject = (id: string) => withNotice(async () => {
+    await projectService.deleteProject(Number(id));
+    if (selectedProjectId === id) { setSelectedProjectId(null); setPage("projects"); }
+  }, "Project deleted");
+
+  const createTask = (data: Omit<Task, "id" | "createdAt">) => withNotice(async () => {
+    await taskService.createTask({
+      title: data.title, description: data.description, projectId: Number(data.projectId),
+      assignedTo: data.assignedTo, priority: data.priority, status: data.status,
+      startDate: data.startDate, dueDate: data.dueDate,
+    });
+  }, "Task created successfully");
+
+  const updateTask = (id: string, data: Omit<Task, "id" | "createdAt">) => withNotice(async () => {
+    await taskService.updateTask(Number(id), {
+      title: data.title, description: data.description, projectId: Number(data.projectId),
+      assignedTo: data.assignedTo, priority: data.priority, status: data.status,
+      startDate: data.startDate, dueDate: data.dueDate,
+    });
+  }, "Task updated");
+
+  const deleteTask = (id: string) => withNotice(async () => {
+    await taskService.deleteTask(Number(id));
+  }, "Task deleted");
+
+  const changeTaskStatus = (id: string, status: TaskStatus) => withNotice(async () => {
+    await taskService.updateTaskStatus(Number(id), status);
+  }, `Task moved to ${status}`);
+
+  const addMember = (data: Omit<TeamMember, "id">) => withNotice(async () => {
+    await teamService.saveMember({ name: data.name, email: data.email, role: data.role });
+  }, "Team member added");
+
+  const updateMember = (id: string, data: Omit<TeamMember, "id">) => withNotice(async () => {
+    await teamService.saveMember({ id: Number(id), name: data.name, email: data.email, role: data.role });
+  }, "Team member updated");
+
+  const deleteMember = (id: string) => withNotice(async () => {
+    await teamService.removeMember(Number(id));
+  }, "Team member removed");
+
+  const logout = async () => {
+    try { await authService.logout(); } catch { /* ignore */ }
+    setUser(null); setPage("dashboard"); setSelectedProjectId(null); setNotice("");
+    setProjects([]); setTasks([]); setMembers([]); setActivities([]);
+  };
+
+  if (checkingSession) return <div className="empty">Loading TaskFlow…</div>;
+
+  if (!user) {
+    return <Auth onLogin={async (u) => { setUser(u); await loadDashboard(); setPage("dashboard"); }} />;
+  }
 
   return <div className="app-shell">
     <Sidebar page={page} go={go} logout={logout} />
@@ -131,16 +201,32 @@ function App() {
   </div>;
 }
 
-function Auth({ users, setUsers, onLogin }: { users: User[]; setUsers: React.Dispatch<React.SetStateAction<User[]>>; onLogin: (user: User) => void }) {
+function Auth({ onLogin }: { onLogin: (user: User) => void }) {
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [name, setName] = useState(""); const [role, setRole] = useState<Role>("Member"); const [confirm, setConfirm] = useState(""); const [error, setError] = useState("");
-  const submit = (e: FormEvent) => { e.preventDefault(); setError("");
-    if (mode === "login") { const found = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password); if (!found) { setError("Invalid email or password. Try admin@taskflow.com / 123456."); return; } onLogin(found); return; }
-    if (!name.trim() || !email.includes("@") || password.length < 6 || password !== confirm) { setError("Please enter valid details and make sure both passwords match."); return; }
-    if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) { setError("An account with this email already exists."); return; }
-    const newUser = { id: uid("user"), name: name.trim(), email: email.trim(), role, password }; setUsers(u => [...u, newUser]); setEmail(newUser.email); setPassword(""); setConfirm(""); setName(""); setMode("login"); setError("Account created. Please log in.");
+  const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [name, setName] = useState(""); const [role, setRole] = useState<Role>("Member"); const [confirm, setConfirm] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setError(""); setBusy(true);
+    try {
+      if (mode === "login") {
+        const session = await authService.login(email, password);
+        onLogin({ id: String(session.id), name: session.name, email: session.email || email, role: session.role as Role });
+        return;
+      }
+      if (!name.trim() || !email.includes("@") || password.length < 6 || password !== confirm) {
+        setError("Please enter valid details and make sure both passwords match."); return;
+      }
+      await authService.register(name.trim(), email.trim(), password, role);
+      setEmail(email.trim()); setPassword(""); setConfirm(""); setName(""); setMode("login");
+      setError("Account created. Please log in.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
   };
-  return <div className="auth-page"><div className="auth-container"><section className="auth-left"><div className="brand"><span className="brand-icon">✓</span><b>Task<span>Flow</span></b></div><div className="auth-copy"><h1>Plan. Track. <span>Complete.</span></h1><p>A simple project management workspace for teams to organize tasks and track progress.</p><div className="feature-list"><div>✓ <b>Track projects</b><small>Keep every project status in one place.</small></div><div>✓ <b>Manage tasks</b><small>Create, assign and update work easily.</small></div><div>✓ <b>Work together</b><small>Manage team members and activity.</small></div></div></div><div className="mini-kanban"><div><b>TO DO</b><i/><i/></div><div><b>IN PROGRESS</b><i className="purple"/><i/></div><div><b>COMPLETED</b><i className="dark"/><i className="purple"/></div></div></section><section className="auth-right"><form className="auth-form" onSubmit={submit}><div className="form-heading"><h2>{mode === "login" ? "Welcome back" : "Create account"}</h2><p>{mode === "login" ? "Sign in to continue to TaskFlow." : "Create your TaskFlow account."}</p></div>{mode === "signup" && <Field label="Full name"><input value={name} onChange={e => setName(e.target.value)} placeholder="Enter your name" /></Field>}<Field label="Email"><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" /></Field><Field label="Password"><input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter password" /></Field>{mode === "signup" && <><Field label="Confirm password"><input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Confirm password" /></Field><Field label="Role"><select value={role} onChange={e => setRole(e.target.value as Role)}>{ROLES.map(r => <option key={r}>{r}</option>)}</select></Field></>}{error && <div className="form-error">{error}</div>}<button className="primary-btn" type="submit">{mode === "login" ? "Login" : "Create Account"}</button><p className="switch-auth">{mode === "login" ? "Don't have an account?" : "Already have an account?"} <button type="button" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }}>{mode === "login" ? "Sign up" : "Login"}</button></p>{mode === "login" && <p className="demo-login">Demo: admin@taskflow.com · 123456</p>}</form></section></div></div>;
+
+  return <div className="auth-page"><div className="auth-container"><section className="auth-left"><div className="brand"><span className="brand-icon">✓</span><b>Task<span>Flow</span></b></div><div className="auth-copy"><h1>Plan. Track. <span>Complete.</span></h1><p>A simple project management workspace for teams to organize tasks and track progress.</p><div className="feature-list"><div>✓ <b>Track projects</b><small>Keep every project status in one place.</small></div><div>✓ <b>Manage tasks</b><small>Create, assign and update work easily.</small></div><div>✓ <b>Work together</b><small>Manage team members and activity.</small></div></div></div><div className="mini-kanban"><div><b>TO DO</b><i/><i/></div><div><b>IN PROGRESS</b><i className="purple"/><i/></div><div><b>COMPLETED</b><i className="dark"/><i className="purple"/></div></div></section><section className="auth-right"><form className="auth-form" onSubmit={submit}><div className="form-heading"><h2>{mode === "login" ? "Welcome back" : "Create account"}</h2><p>{mode === "login" ? "Sign in to continue to TaskFlow." : "Create your TaskFlow account."}</p></div>{mode === "signup" && <Field label="Full name"><input value={name} onChange={e => setName(e.target.value)} placeholder="Enter your name" /></Field>}<Field label="Email"><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" /></Field><Field label="Password"><input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Enter password" /></Field>{mode === "signup" && <><Field label="Confirm password"><input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Confirm password" /></Field><Field label="Role"><select value={role} onChange={e => setRole(e.target.value as Role)}>{ROLES.map(r => <option key={r}>{r}</option>)}</select></Field></>}{error && <div className="form-error">{error}</div>}<button className="primary-btn" type="submit" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? "Login" : "Create Account"}</button><p className="switch-auth">{mode === "login" ? "Don't have an account?" : "Already have an account?"} <button type="button" onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }}>{mode === "login" ? "Sign up" : "Login"}</button></p>{mode === "login" && <p className="demo-login">Sign up once to create your first account — it's stored in MySQL.</p>}</form></section></div></div>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <div className="field"><label>{label}</label>{children}</div>; }
@@ -167,14 +253,14 @@ function ActivityList({ activities }: { activities: Activity[] }) { return <div 
 function Projects({ projects, tasks, members, user, createProject, updateProject, deleteProject, openProject }: { projects: Project[]; tasks: Task[]; members: TeamMember[]; user: User; createProject: (x: Omit<Project,"id">)=>void; updateProject:(id:string,x:Omit<Project,"id">)=>void; deleteProject:(id:string)=>void; openProject:(id:string)=>void }) {
   const [modal, setModal] = useState<"create"|Project|null>(null); const [search,setSearch]=useState("");
   const filtered=projects.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||p.id.toLowerCase().includes(search.toLowerCase()));
-  const managerOptions = members.length ? members : [{id:"current",name:user.name,email:user.email,role:user.role} as TeamMember];
+  const managerOptions = members.length ? members : [{id:"",name:user.name,email:user.email,role:user.role} as TeamMember];
   return <><PageTitle title="Projects" subtitle="Create and track all your projects." action={<button className="primary-btn small" onClick={()=>setModal("create")}>+ Create Project</button>}/><div className="toolbar"><input className="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search projects..."/><span>{filtered.length} projects</span></div><div className="project-grid">{filtered.map(p=><ProjectCard key={p.id} project={p} tasks={tasks} members={members} onView={()=>openProject(p.id)} onEdit={()=>setModal(p)} onDelete={()=>window.confirm(`Delete ${p.name}?`)&&deleteProject(p.id)}/>)}</div>{filtered.length===0&&<Empty text="No matching projects."/>}{modal&&<ProjectModal initial={modal === "create" ? null : modal} members={managerOptions} onClose={()=>setModal(null)} onSave={data=>{modal === "create" ? createProject(data) : updateProject((modal as Project).id,data); setModal(null)}}/>}</>;
 }
-function ProjectCard({ project, tasks, members, onView, onEdit, onDelete }: { project: Project; tasks: Task[]; members: TeamMember[]; onView:()=>void; onEdit:()=>void; onDelete:()=>void }) { const p=projectProgress(project.id,tasks); return <div className="project-card"><div className="card-top"><span className="project-id">{project.id}</span><StatusBadge value={project.status}/></div><h3>{project.name}</h3><p>{project.description || "No description"}</p><div className="card-info"><span>Manager <b>{members.find(m=>m.id===project.managerId)?.name||"-"}</b></span><span>Due <b>{formatDate(project.dueDate)}</b></span></div><div className="card-info"><PriorityBadge value={project.priority}/><span>{tasks.filter(t=>t.projectId===project.id).length} tasks</span></div><div className="progress-track"><span style={{width:`${p}%`}}/></div><div className="card-progress"><b>{p}% complete</b><span>{tasks.filter(t=>t.projectId===project.id&&t.status==="Completed").length} completed</span></div><div className="card-actions"><button onClick={onView}>View Details</button><button onClick={onEdit}>Edit</button><button className="danger-text" onClick={onDelete}>Delete</button></div></div>; }
+function ProjectCard({ project, tasks, members, onView, onEdit, onDelete }: { project: Project; tasks: Task[]; members: TeamMember[]; onView:()=>void; onEdit:()=>void; onDelete:()=>void }) { const p=projectProgress(project.id,tasks); return <div className="project-card"><div className="card-top"><span className="project-id">#{project.id}</span><StatusBadge value={project.status}/></div><h3>{project.name}</h3><p>{project.description || "No description"}</p><div className="card-info"><span>Manager <b>{members.find(m=>m.id===project.managerId)?.name||"-"}</b></span><span>Due <b>{formatDate(project.dueDate)}</b></span></div><div className="card-info"><PriorityBadge value={project.priority}/><span>{tasks.filter(t=>t.projectId===project.id).length} tasks</span></div><div className="progress-track"><span style={{width:`${p}%`}}/></div><div className="card-progress"><b>{p}% complete</b><span>{tasks.filter(t=>t.projectId===project.id&&t.status==="Completed").length} completed</span></div><div className="card-actions"><button onClick={onView}>View Details</button><button onClick={onEdit}>Edit</button><button className="danger-text" onClick={onDelete}>Delete</button></div></div>; }
 
 function ProjectModal({ initial, members, onClose, onSave }: { initial: Project|null; members: TeamMember[]; onClose:()=>void; onSave:(x:Omit<Project,"id">)=>void }) { const [name,setName]=useState(initial?.name||""); const [description,setDescription]=useState(initial?.description||""); const [managerId,setManagerId]=useState(initial?.managerId||members[0]?.id||""); const [teamIds,setTeamIds]=useState<string[]>(initial?.teamIds||members.slice(0,2).map(m=>m.id)); const [startDate,setStartDate]=useState(initial?.startDate||today()); const [dueDate,setDueDate]=useState(initial?.dueDate||""); const [priority,setPriority]=useState<Priority>(initial?.priority||"Medium"); const [status,setStatus]=useState<ProjectStatus>(initial?.status||"Not Started"); const submit=(e:FormEvent)=>{e.preventDefault();if(!name.trim()||!dueDate)return;onSave({name,description,managerId,teamIds,startDate,dueDate,priority,status});}; return <Modal title={initial?"Edit Project":"Create Project"} onClose={onClose}><form onSubmit={submit}><div className="form-grid"><Field label="Project name"><input value={name} onChange={e=>setName(e.target.value)} required/></Field><Field label="Manager"><select value={managerId} onChange={e=>setManagerId(e.target.value)}>{members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></Field><Field label="Start date"><input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)}/></Field><Field label="Due date"><input type="date" value={dueDate} onChange={e=>setDueDate(e.target.value)} required/></Field><Field label="Priority"><select value={priority} onChange={e=>setPriority(e.target.value as Priority)}>{PRIORITIES.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Status"><select value={status} onChange={e=>setStatus(e.target.value as ProjectStatus)}>{PROJECT_STATUSES.map(x=><option key={x}>{x}</option>)}</select></Field><div className="full-field"><Field label="Description"><textarea value={description} onChange={e=>setDescription(e.target.value)} rows={3}/></Field></div><div className="full-field"><label>Team members</label><div className="check-grid">{members.map(m=><label key={m.id}><input type="checkbox" checked={teamIds.includes(m.id)} onChange={e=>setTeamIds(v=>e.target.checked?[...v,m.id]:v.filter(id=>id!==m.id))}/>{m.name}</label>)}</div></div></div><div className="modal-actions"><button type="button" onClick={onClose}>Cancel</button><button className="primary-btn" type="submit">{initial?"Save Changes":"Create Project"}</button></div></form></Modal>; }
 
-function ProjectDetails({ projectId, projects, tasks, members, updateTask, changeTaskStatus, go }: { projectId:string; projects:Project[]; tasks:Task[]; members:TeamMember[]; updateTask:(id:string,x:Omit<Task,"id"|"createdAt">)=>void; changeTaskStatus:(id:string,s:TaskStatus)=>void; go:(p:Page)=>void }) { const project=projects.find(p=>p.id===projectId); const list=tasks.filter(t=>t.projectId===projectId); if(!project)return <Empty text="Project not found."/>; const p=projectProgress(project.id,tasks); const [modal,setModal]=useState<Task|null>(null); return <><button className="back-btn" onClick={()=>go("projects")}>← Back to Projects</button><PageTitle title={project.name} subtitle={project.description}/><div className="detail-head"><div><span className="project-id">{project.id}</span><StatusBadge value={project.status}/><PriorityBadge value={project.priority}/></div><div className="detail-meta"><span>Manager: <b>{members.find(m=>m.id===project.managerId)?.name||"-"}</b></span><span>{formatDate(project.startDate)} → {formatDate(project.dueDate)}</span></div></div><div className="detail-stats"><StatCard label="Total Tasks" value={list.length} icon="☷"/><StatCard label="To Do" value={list.filter(t=>t.status==="To Do").length} icon="○"/><StatCard label="In Progress" value={list.filter(t=>t.status==="In Progress").length} icon="◐"/><StatCard label="Review" value={list.filter(t=>t.status==="Review").length} icon="◇"/><StatCard label="Completed" value={list.filter(t=>t.status==="Completed").length} icon="✓"/><StatCard label="Overdue" value={list.filter(isOverdue).length} icon="!"/></div><section className="panel"><div className="panel-heading"><h2>Project Progress</h2><b>{p}%</b></div><div className="big-progress"><span style={{width:`${p}%`}}/></div></section><section className="panel"><div className="panel-heading"><h2>Kanban Board</h2><button className="secondary-btn" onClick={()=>go("tasks")}>Manage Tasks</button></div><div className="kanban-board">{TASK_STATUSES.map(status=><div className="kanban-column" key={status}><div className="column-title"><b>{status}</b><span>{list.filter(t=>t.status===status).length}</span></div>{list.filter(t=>t.status===status).map(t=><TaskCard key={t.id} task={t} members={members} onEdit={()=>setModal(t)} onStatus={s=>changeTaskStatus(t.id,s)}/>) }{list.filter(t=>t.status===status).length===0&&<div className="column-empty">No tasks</div>}</div>)}</div></section>{modal&&<TaskModal initial={modal} projects={projects} members={members} onClose={()=>setModal(null)} onSave={data=>{updateTask(modal.id,data);setModal(null)}}/>}</>; }
+function ProjectDetails({ projectId, projects, tasks, members, updateTask, changeTaskStatus, go }: { projectId:string; projects:Project[]; tasks:Task[]; members:TeamMember[]; updateTask:(id:string,x:Omit<Task,"id"|"createdAt">)=>void; changeTaskStatus:(id:string,s:TaskStatus)=>void; go:(p:Page)=>void }) { const project=projects.find(p=>p.id===projectId); const list=tasks.filter(t=>t.projectId===projectId); if(!project)return <Empty text="Project not found."/>; const p=projectProgress(project.id,tasks); const [modal,setModal]=useState<Task|null>(null); return <><button className="back-btn" onClick={()=>go("projects")}>← Back to Projects</button><PageTitle title={project.name} subtitle={project.description}/><div className="detail-head"><div><span className="project-id">#{project.id}</span><StatusBadge value={project.status}/><PriorityBadge value={project.priority}/></div><div className="detail-meta"><span>Manager: <b>{members.find(m=>m.id===project.managerId)?.name||"-"}</b></span><span>{formatDate(project.startDate)} → {formatDate(project.dueDate)}</span></div></div><div className="detail-stats"><StatCard label="Total Tasks" value={list.length} icon="☷"/><StatCard label="To Do" value={list.filter(t=>t.status==="To Do").length} icon="○"/><StatCard label="In Progress" value={list.filter(t=>t.status==="In Progress").length} icon="◐"/><StatCard label="Review" value={list.filter(t=>t.status==="Review").length} icon="◇"/><StatCard label="Completed" value={list.filter(t=>t.status==="Completed").length} icon="✓"/><StatCard label="Overdue" value={list.filter(isOverdue).length} icon="!"/></div><section className="panel"><div className="panel-heading"><h2>Project Progress</h2><b>{p}%</b></div><div className="big-progress"><span style={{width:`${p}%`}}/></div></section><section className="panel"><div className="panel-heading"><h2>Kanban Board</h2><button className="secondary-btn" onClick={()=>go("tasks")}>Manage Tasks</button></div><div className="kanban-board">{TASK_STATUSES.map(status=><div className="kanban-column" key={status}><div className="column-title"><b>{status}</b><span>{list.filter(t=>t.status===status).length}</span></div>{list.filter(t=>t.status===status).map(t=><TaskCard key={t.id} task={t} members={members} onEdit={()=>setModal(t)} onStatus={s=>changeTaskStatus(t.id,s)}/>) }{list.filter(t=>t.status===status).length===0&&<div className="column-empty">No tasks</div>}</div>)}</div></section>{modal&&<TaskModal initial={modal} projects={projects} members={members} onClose={()=>setModal(null)} onSave={data=>{updateTask(modal.id,data);setModal(null)}}/>}</>; }
 function TaskCard({task,members,onEdit,onStatus}:{task:Task;members:TeamMember[];onEdit:()=>void;onStatus:(s:TaskStatus)=>void}) { return <div className="task-card"><div className="task-card-title"><b>{task.title}</b><button onClick={onEdit}>⋮</button></div><p>{task.description}</p><div className="task-tags"><PriorityBadge value={task.priority}/>{isOverdue(task)&&<span className="overdue">Overdue</span>}</div><small>👤 {members.find(m=>m.id===task.assignedTo)?.name||"Unassigned"}</small><small>Due {formatDate(task.dueDate)}</small><select value={task.status} onChange={e=>onStatus(e.target.value as TaskStatus)}>{TASK_STATUSES.map(s=><option key={s}>{s}</option>)}</select></div>; }
 
 function TasksPage({projects,tasks,members,createTask,updateTask,deleteTask,changeTaskStatus}:{projects:Project[];tasks:Task[];members:TeamMember[];createTask:(x:Omit<Task,"id"|"createdAt">)=>void;updateTask:(id:string,x:Omit<Task,"id"|"createdAt">)=>void;deleteTask:(id:string)=>void;changeTaskStatus:(id:string,s:TaskStatus)=>void}) { const [modal,setModal]=useState<"create"|Task|null>(null); const [search,setSearch]=useState(""); const [filter,setFilter]=useState("All"); const filtered=tasks.filter(t=>(filter==="All"||(filter==="Overdue"?isOverdue(t):t.status===filter))&&(t.title+" "+(projects.find(p=>p.id===t.projectId)?.name||"")+" "+(members.find(m=>m.id===t.assignedTo)?.name||"")).toLowerCase().includes(search.toLowerCase())); return <><PageTitle title="Tasks" subtitle="Manage work across all projects." action={<button className="primary-btn small" onClick={()=>setModal("create")}>+ Create Task</button>}/><div className="toolbar"><input className="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search task, project or member..."/><div className="filter-row">{["All",...TASK_STATUSES,"Overdue"].map(f=><button key={f} className={filter===f?"filter active":"filter"} onClick={()=>setFilter(f)}>{f}</button>)}</div></div><div className="table-wrap"><table><thead><tr><th>Task</th><th>Project</th><th>Assigned To</th><th>Priority</th><th>Status</th><th>Due Date</th><th>Actions</th></tr></thead><tbody>{filtered.map(t=><tr key={t.id}><td><b>{t.title}</b><small>{t.description}</small></td><td>{projects.find(p=>p.id===t.projectId)?.name||"-"}</td><td>{members.find(m=>m.id===t.assignedTo)?.name||"-"}</td><td><PriorityBadge value={t.priority}/></td><td><select className="inline-select" value={t.status} onChange={e=>changeTaskStatus(t.id,e.target.value as TaskStatus)}>{TASK_STATUSES.map(s=><option key={s}>{s}</option>)}</select></td><td className={isOverdue(t)?"text-overdue":""}>{formatDate(t.dueDate)}</td><td><button className="table-btn" onClick={()=>setModal(t)}>Edit</button><button className="table-btn danger-text" onClick={()=>window.confirm(`Delete ${t.title}?`)&&deleteTask(t.id)}>Delete</button></td></tr>)}</tbody></table></div>{filtered.length===0&&<Empty text="No tasks match your filters."/>}{modal&&<TaskModal initial={modal === "create" ? null : modal} projects={projects} members={members} onClose={()=>setModal(null)} onSave={data=>{modal === "create" ? createTask(data) : updateTask((modal as Task).id,data);setModal(null)}}/>}</>; }
