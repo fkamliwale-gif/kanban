@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { loadStateFromMySQL, saveStateToMySQL } from "./services/api";
 import "./App.css";
 
 type Page = "dashboard" | "projects" | "projectDetails" | "tasks" | "calendar" | "team" | "reports" | "activity" | "settings";
@@ -41,30 +42,54 @@ const seedTasks: Task[] = [
   { id: "TSK-004", title: "Attendance wireframe", description: "Create the first attendance page wireframe.", projectId: "PRJ-002", assignedTo: "member-3", priority: "Medium", status: "To Do", startDate: "2026-08-20", dueDate: "2026-09-18", createdAt: "2026-08-20T14:00:00" },
 ];
 
-function readStorage<T>(key: string, fallback: T): T {
-  try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback; } catch { return fallback; }
-}
-function saveStorage(key: string, value: unknown) { localStorage.setItem(key, JSON.stringify(value)); }
-
 function App() {
-  const [page, setPage] = useState<Page>(() => readStorage("tf_page", "dashboard"));
-  const [user, setUser] = useState<User | null>(() => readStorage<User | null>("tf_user", null));
-  const [users, setUsers] = useState<User[]>(() => readStorage("tf_users", [{ id: "user-admin", name: "Admin User", email: "admin@taskflow.com", role: "Admin", password: "123456" }]));
-  const [members, setMembers] = useState<TeamMember[]>(() => readStorage("tf_members", seedMembers));
-  const [projects, setProjects] = useState<Project[]>(() => readStorage("tf_projects", seedProjects));
-  const [tasks, setTasks] = useState<Task[]>(() => readStorage("tf_tasks", seedTasks));
-  const [activities, setActivities] = useState<Activity[]>(() => readStorage("tf_activities", []));
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => readStorage("tf_selected_project", null));
+  const [page, setPage] = useState<Page>("dashboard");
+  const [user, setUser] = useState<User | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const [ready, setReady] = useState(false);
 
-  useEffect(() => saveStorage("tf_users", users), [users]);
-  useEffect(() => saveStorage("tf_members", members), [members]);
-  useEffect(() => saveStorage("tf_projects", projects), [projects]);
-  useEffect(() => saveStorage("tf_tasks", tasks), [tasks]);
-  useEffect(() => saveStorage("tf_activities", activities), [activities]);
-  useEffect(() => saveStorage("tf_user", user), [user]);
-  useEffect(() => saveStorage("tf_page", page), [page]);
-  useEffect(() => saveStorage("tf_selected_project", selectedProjectId), [selectedProjectId]);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const state = await loadStateFromMySQL();
+        if (state) {
+          setUsers(Array.isArray(state.users) && state.users.length ? state.users : [{ id: "user-admin", name: "Admin User", email: "admin@taskflow.com", role: "Admin", password: "123456" }]);
+          setMembers(Array.isArray(state.members) && state.members.length ? state.members : seedMembers);
+          setProjects(Array.isArray(state.projects) && state.projects.length ? state.projects : seedProjects);
+          setTasks(Array.isArray(state.tasks) && state.tasks.length ? state.tasks : seedTasks);
+          setActivities(Array.isArray(state.activities) ? state.activities : []);
+        } else {
+          setUsers([{ id: "user-admin", name: "Admin User", email: "admin@taskflow.com", role: "Admin", password: "123456" }]);
+          setMembers(seedMembers);
+          setProjects(seedProjects);
+          setTasks(seedTasks);
+          setActivities([]);
+        }
+      } catch (error) {
+        console.error("Could not load TaskFlow data from MySQL.", error);
+        setNotice("MySQL connection failed. Check XAMPP and PHP API.");
+      } finally {
+        setReady(true);
+      }
+    };
+    load();
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const timer = window.setTimeout(() => {
+      saveStateToMySQL({ users, members, projects, tasks, activities, settings: { notifications: true } })
+        .catch(error => console.error("Could not save TaskFlow data to MySQL.", error));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [ready, users, members, projects, tasks, activities]);
+
   useEffect(() => { if (notice) { const t = window.setTimeout(() => setNotice(""), 2500); return () => clearTimeout(t); } }, [notice]);
 
   const addActivity = (action: string) => {
@@ -84,7 +109,7 @@ function App() {
   const updateMember = (id: string, data: Omit<TeamMember, "id">) => { setMembers(m => m.map(x => x.id === id ? { ...data, id } : x)); addActivity(`Team member updated: ${data.name}`); setNotice("Team member updated"); };
   const deleteMember = (id: string) => { const member = members.find(x => x.id === id); if (!member) return; setMembers(m => m.filter(x => x.id !== id)); addActivity(`Team member removed: ${member.name}`); setNotice("Team member removed"); };
 
-  const logout = () => { setUser(null); localStorage.removeItem("tf_user"); setPage("dashboard"); setNotice(""); };
+  const logout = () => { setUser(null); setPage("dashboard"); setSelectedProjectId(null); setNotice(""); };
 
   if (!user) return <Auth users={users} setUsers={setUsers} onLogin={(u) => { setUser(u); setPage("dashboard"); }} />;
 
@@ -163,7 +188,7 @@ function MemberModal({initial,onClose,onSave}:{initial:TeamMember|null;onClose:(
 
 function Reports({projects,tasks}:{projects:Project[];tasks:Task[]}) { const projectStatus=PROJECT_STATUSES.map(s=>[s,projects.filter(p=>p.status===s).length] as const);const taskStatus=TASK_STATUSES.map(s=>[s,tasks.filter(t=>t.status===s).length] as const);const maxP=Math.max(1,...projectStatus.map(x=>x[1]));const maxT=Math.max(1,...taskStatus.map(x=>x[1]));return <><PageTitle title="Reports" subtitle="Simple live statistics from your projects and tasks."/><div className="report-grid"><section className="panel"><div className="panel-heading"><h2>Project Status Summary</h2></div>{projectStatus.map(([s,n])=><div className="bar-row" key={s}><span>{s}</span><div><i style={{width:`${n/maxP*100}%`}}/></div><b>{n}</b></div>)}</section><section className="panel"><div className="panel-heading"><h2>Task Status Summary</h2></div>{taskStatus.map(([s,n])=><div className="bar-row" key={s}><span>{s}</span><div><i style={{width:`${n/maxT*100}%`}}/></div><b>{n}</b></div>)}</section></div><div className="stats-grid"><StatCard label="Total Projects" value={projects.length} icon="▤"/><StatCard label="Completed Projects" value={projects.filter(p=>p.status==="Completed").length} icon="✓"/><StatCard label="Active Projects" value={projects.filter(p=>p.status==="In Progress").length} icon="◉"/><StatCard label="Total Tasks" value={tasks.length} icon="☷"/><StatCard label="Completed Tasks" value={tasks.filter(t=>t.status==="Completed").length} icon="✓"/><StatCard label="Overdue Tasks" value={tasks.filter(isOverdue).length} icon="!"/></div></>; }
 function ActivityPage({activities}:{activities:Activity[]}){return <><PageTitle title="Activity" subtitle="A timeline of recent changes in TaskFlow."/>{activities.length?<section className="panel"><ActivityList activities={activities}/></section>:<Empty text="No activity yet."/>}</>}
-function Settings({user,logout}:{user:User;logout:()=>void}){const[notifications,setNotifications]=useState(()=>readStorage("tf_notifications",true));const toggle=(v:boolean)=>{setNotifications(v);saveStorage("tf_notifications",v)};return <><PageTitle title="Settings" subtitle="Manage your profile and application preferences."/><div className="settings-grid"><section className="panel"><h2>Profile</h2><div className="profile-large"><div className="avatar big">{user.name.charAt(0)}</div><div><h3>{user.name}</h3><p>{user.email}</p><StatusBadge value={user.role}/></div></div></section><section className="panel"><h2>Application Settings</h2><label className="setting-row"><span><b>Notifications</b><small>Show task and activity notifications.</small></span><input type="checkbox" checked={notifications} onChange={e=>toggle(e.target.checked)}/></label></section><section className="panel"><h2>Account</h2><button className="danger-btn" onClick={logout}>Logout</button></section></div></>}
+function Settings({user,logout}:{user:User;logout:()=>void}){const[notifications,setNotifications]=useState(true);const toggle=(v:boolean)=>{setNotifications(v)};return <><PageTitle title="Settings" subtitle="Manage your profile and application preferences."/><div className="settings-grid"><section className="panel"><h2>Profile</h2><div className="profile-large"><div className="avatar big">{user.name.charAt(0)}</div><div><h3>{user.name}</h3><p>{user.email}</p><StatusBadge value={user.role}/></div></div></section><section className="panel"><h2>Application Settings</h2><label className="setting-row"><span><b>Notifications</b><small>Show task and activity notifications.</small></span><input type="checkbox" checked={notifications} onChange={e=>toggle(e.target.checked)}/></label></section><section className="panel"><h2>Account</h2><button className="danger-btn" onClick={logout}>Logout</button></section></div></>}
 function Modal({title,onClose,children}:{title:string;onClose:()=>void;children:React.ReactNode}){return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><div className="modal"><div className="modal-heading"><h2>{title}</h2><button onClick={onClose}>×</button></div>{children}</div></div>}
 
 export default App;
