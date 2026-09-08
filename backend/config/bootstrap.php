@@ -16,10 +16,6 @@ function env_value(string $key, string $default = ''): string
     return $value === false ? $default : $value;
 }
 
-// ========================================
-// CORS
-// ========================================
-
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $allowedOrigins = array_values(array_filter([
     env_value('FRONTEND_URL'),
@@ -42,10 +38,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// ========================================
-// PHP SESSION SETTINGS
-// ========================================
-
 $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
 ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
@@ -59,16 +51,7 @@ session_set_cookie_params([
 ]);
 
 session_start();
-
-// ========================================
-// DATABASE
-// ========================================
-
 require_once __DIR__ . '/database.php';
-
-// ========================================
-// JSON INPUT / RESPONSE
-// ========================================
 
 function json_input(): array
 {
@@ -93,7 +76,6 @@ function require_login(): int
     if (empty($_SESSION['user_id'])) {
         respond(false, 'Not logged in', null, 401);
     }
-
     return (int) $_SESSION['user_id'];
 }
 
@@ -102,7 +84,6 @@ function csrf_token(): string
     if (empty($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
     }
-
     return $_SESSION['csrf_token'];
 }
 
@@ -125,7 +106,6 @@ function validate_enum(string $value, array $allowed, string $field): string
     if (!in_array($value, $allowed, true)) {
         respond(false, "Invalid {$field}.", null, 422);
     }
-
     return $value;
 }
 
@@ -154,11 +134,6 @@ function validate_date_range(?string $startDate, ?string $dueDate): void
     }
 }
 
-/**
- * Return project access details for the authenticated user.
- * A user is considered a project member when their account email matches
- * a team member linked to the project. Project owners always have access.
- */
 function get_project_access(PDO $pdo, int $projectId, int $userId): ?array
 {
     $stmt = $pdo->prepare(
@@ -178,7 +153,6 @@ function get_project_access(PDO $pdo, int $projectId, int $userId): ?array
     );
     $stmt->execute([$userId, $projectId, $userId]);
     $row = $stmt->fetch();
-
     return $row ?: null;
 }
 
@@ -188,7 +162,6 @@ function require_project_access(PDO $pdo, int $projectId, int $userId): array
     if (!$access) {
         respond(false, 'Project not found or access denied.', null, 404);
     }
-
     return $access;
 }
 
@@ -227,7 +200,6 @@ function get_task_access(PDO $pdo, int $taskId, int $userId): ?array
     );
     $stmt->execute([$userId, $taskId, $userId]);
     $row = $stmt->fetch();
-
     return $row ?: null;
 }
 
@@ -237,7 +209,6 @@ function require_task_access(PDO $pdo, int $taskId, int $userId): array
     if (!$access) {
         respond(false, 'Task not found or access denied.', null, 404);
     }
-
     return $access;
 }
 
@@ -261,8 +232,6 @@ function require_team_manage_permission(PDO $pdo, int $userId): void
     $stmt->execute([$userId]);
     $role = $stmt->fetchColumn();
 
-    // Team members are a shared directory in the current schema. Allow
-    // Admin/Project Manager globally; project owners may also manage it.
     if (in_array($role, ['Admin', 'Project Manager'], true)) {
         return;
     }
@@ -317,4 +286,33 @@ function validate_team_member_ids(PDO $pdo, array $memberIds): array
     }
 
     return $clean;
+}
+
+function validate_member_for_project(PDO $pdo, int $projectId, ?int $memberId): void
+{
+    if ($memberId === null) {
+        return;
+    }
+
+    validate_member_exists($pdo, $memberId);
+
+    $stmt = $pdo->prepare(
+        'SELECT 1
+         FROM project_team_members
+         WHERE project_id = ? AND team_member_id = ?'
+    );
+    $stmt->execute([$projectId, $memberId]);
+
+    if (!$stmt->fetchColumn()) {
+        respond(false, 'Assigned member must belong to the selected project.', null, 422);
+    }
+}
+
+function log_activity(PDO $pdo, int $userId, string $action, string $actionType, ?int $projectId = null, ?int $taskId = null): void
+{
+    $stmt = $pdo->prepare(
+        'INSERT INTO activities (user_id, project_id, task_id, action_type, action)
+         VALUES (?, ?, ?, ?, ?)'
+    );
+    $stmt->execute([$userId, $projectId, $taskId, $actionType, $action]);
 }
