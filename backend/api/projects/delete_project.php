@@ -1,25 +1,38 @@
 <?php
 require_once __DIR__ . '/../../config/bootstrap.php';
 $userId = require_login();
+require_csrf();
 
-$input = $_SERVER['REQUEST_METHOD'] === 'POST' ? json_input() : $_GET;
-$id = (int) ($input['id'] ?? 0);
-if ($id <= 0) {
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    respond(false, 'Method not allowed', null, 405);
+}
+
+$input = json_input();
+$id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
+if (!$id) {
     respond(false, 'A valid project id is required.', null, 422);
 }
 
 $pdo = get_db();
-$name = $pdo->prepare('SELECT project_name FROM projects WHERE id = ?');
-$name->execute([$id]);
-$row = $name->fetch();
+require_project_manage_permission($pdo, (int) $id, $userId);
+
+$nameStmt = $pdo->prepare('SELECT project_name FROM projects WHERE id = ?');
+$nameStmt->execute([(int) $id]);
+$row = $nameStmt->fetch();
 if (!$row) {
     respond(false, 'Project not found', null, 404);
 }
 
-// ON DELETE CASCADE in the schema removes its tasks and team links too.
-$pdo->prepare('DELETE FROM projects WHERE id = ?')->execute([$id]);
-
-$log = $pdo->prepare('INSERT INTO activities (user_id, action) VALUES (?, ?)');
-$log->execute([$userId, "Project deleted: {$row['project_name']}"]);
-
-respond(true, 'Project deleted');
+try {
+    $pdo->beginTransaction();
+    $pdo->prepare('DELETE FROM projects WHERE id = ?')->execute([(int) $id]);
+    log_activity($pdo, $userId, "Project deleted: {$row['project_name']}", 'project_deleted', (int) $id);
+    $pdo->commit();
+    respond(true, 'Project deleted');
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('Project deletion failed: ' . $e->getMessage());
+    respond(false, 'Unable to delete project.', null, 500);
+}
