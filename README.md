@@ -1,35 +1,116 @@
-# React + TypeScript + Vite
+# TaskFlow Kanban Tracker
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A React + TypeScript frontend with a PHP + MySQL backend for running locally with XAMPP.
 
-Currently, two official plugins are available:
+## Technology
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React
+- TypeScript
+- Vite
+- PHP
+- MySQL
+- phpMyAdmin
+- XAMPP
 
-## React Compiler
+## Backend setup
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+1. Copy the repository's `backend` folder to:
 
-Note: This will impact Vite dev & build performances.
-You can also try [the experimental native React Compiler support in plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md#rust-react-compiler) by using `compiler: true` in the plugin options instead of using the Babel plugin.
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```text
+C:\xampp\htdocs\kanban\backend
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+2. Start **Apache** and **MySQL** in XAMPP.
+
+3. Open phpMyAdmin:
+
+```text
+http://localhost/phpmyadmin
+```
+
+4. Import:
+
+```text
+backend/database/kanban_database.sql
+```
+
+The database name is:
+
+```text
+kanban_tracker
+```
+
+> Important: If you imported an older database version before this update, create a fresh `kanban_tracker` database and import the updated SQL file so the latest table structure is applied.
+
+## Frontend setup
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Optional: copy `.env.example` to `.env` and change the backend URL if your XAMPP folder name is different.
+
+Run:
+
+```bash
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:5173
+```
+
+## API URL
+
+Default API URL:
+
+```text
+http://localhost/kanban/backend/api
+```
+
+It can be overridden with:
+
+```text
+VITE_API_BASE_URL
+```
+
+## Authentication
+
+The app uses PHP sessions and sends cookies with:
+
+```text
+credentials: include
+```
+
+CORS and session handling are centralized in:
+
+```text
+backend/config/bootstrap.php
+```
+
+Endpoints:
+
+- `POST /auth/register.php`
+- `POST /auth/login.php`
+- `GET /auth/session.php`
+- `POST /auth/logout.php`
+
+## Main functionality
+
+- User registration and login
+- PHP session authentication
+- Projects stored in MySQL
+- Tasks stored in MySQL
+- Kanban task status updates
+- Team members stored in MySQL
+- Dashboard data from MySQL
+- Activity history
+- Data isolated by logged-in user
+
+## Production note
+
+This project is configured for local XAMPP development. Before deploying publicly, add stronger authorization, CSRF protection, HTTPS, environment-based database credentials, and production error logging.
