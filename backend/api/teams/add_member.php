@@ -19,16 +19,26 @@ if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
 $pdo = get_db();
 
 if ($id > 0) {
-    $pdo->prepare('UPDATE team_members SET member_name = ?, member_email = ?, role = ? WHERE id = ?')
-        ->execute([$name, $email, $role, $id]);
-    $log = "Team member updated: {$name}";
+    $stmt = $pdo->prepare(
+        'UPDATE team_members SET member_name = ?, member_email = ?, role = ?
+         WHERE id = ? AND user_id = ?'
+    );
+    $stmt->execute([$name, $email, $role, $id, $userId]);
+    if ($stmt->rowCount() === 0) {
+        respond(false, 'Team member not found.', null, 404);
+    }
+    $message = "Team member updated: {$name}";
 } else {
-    $pdo->prepare('INSERT INTO team_members (member_name, member_email, role) VALUES (?, ?, ?)')
-        ->execute([$name, $email, $role]);
+    $stmt = $pdo->prepare(
+        'INSERT INTO team_members (user_id, member_name, member_email, role)
+         VALUES (?, ?, ?, ?)'
+    );
+    $stmt->execute([$userId, $name, $email, $role]);
     $id = (int) $pdo->lastInsertId();
-    $log = "Team member added: {$name}";
+    $message = "Team member added: {$name}";
 }
 
-$pdo->prepare('INSERT INTO activities (user_id, action) VALUES (?, ?)')->execute([$userId, $log]);
+$pdo->prepare('INSERT INTO activities (user_id, action) VALUES (?, ?)')
+    ->execute([$userId, $message]);
 
-respond(true, $log, ['id' => $id]);
+respond(true, $message, ['id' => $id]);
