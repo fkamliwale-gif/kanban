@@ -227,7 +227,7 @@ function require_team_manage_permission(PDO $pdo, int $userId, ?int $memberId = 
         return;
     }
 
-    // Any authenticated user may create a team-directory entry for their own work.
+    // Creating a new directory entry is allowed for an authenticated user.
     if ($memberId === null) {
         return;
     }
@@ -236,11 +236,28 @@ function require_team_manage_permission(PDO $pdo, int $userId, ?int $memberId = 
     $stmt->execute([$memberId]);
     $createdBy = $stmt->fetchColumn();
 
-    if ($createdBy !== false && (int) $createdBy === $userId) {
-        return;
+    if ($createdBy === false) {
+        respond(false, 'Team member not found.', null, 404);
     }
 
-    respond(false, 'You do not have permission to modify this team member.', null, 403);
+    if ((int) $createdBy !== $userId) {
+        respond(false, 'You do not have permission to modify this team member.', null, 403);
+    }
+
+    // A creator cannot alter a member after another project owner has linked it.
+    $crossProjectStmt = $pdo->prepare(
+        'SELECT 1
+         FROM project_team_members ptm
+         JOIN projects p ON p.id = ptm.project_id
+         WHERE ptm.team_member_id = ?
+           AND p.user_id <> ?
+         LIMIT 1'
+    );
+    $crossProjectStmt->execute([$memberId, $userId]);
+
+    if ($crossProjectStmt->fetchColumn()) {
+        respond(false, 'This team member is used by another project owner and cannot be modified.', null, 403);
+    }
 }
 
 function validate_member_exists(PDO $pdo, ?int $memberId): void
