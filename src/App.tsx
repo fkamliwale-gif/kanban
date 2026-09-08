@@ -89,8 +89,15 @@ function App() {
     (async () => {
       try {
         const session = await authService.checkSession();
-        setUser({ id: String(session.id), name: session.name, email: "", role: session.role as Role });
-        await loadDashboard();
+        if (session) {
+          setUser({
+            id: String(session.id),
+            name: session.name,
+            email: session.email || "",
+            role: session.role as Role
+          });
+          await loadDashboard();
+        }
       } catch {
         // no active session — show the login screen
       } finally {
