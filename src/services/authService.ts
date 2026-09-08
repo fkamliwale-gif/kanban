@@ -1,25 +1,35 @@
-import { apiRequest, apiPost } from "./api";
+import { apiRequest, apiPost, clearCsrfToken, setCsrfToken } from './api';
 
 export interface SessionUser {
   id: number;
   name: string;
   email?: string;
   role: string;
+  csrfToken: string;
 }
 
-export function register(name: string, email: string, password: string, role: string) {
-  return apiPost<{ id: number }>("/auth/register.php", { name, email, password, role });
+// The role parameter is retained for frontend compatibility, but the backend
+// deliberately ignores it for public registration and always creates Member.
+export async function register(name: string, email: string, password: string, _role?: string) {
+  return apiPost<{ id: number }>('/auth/register.php', { name, email, password });
 }
 
-export function login(email: string, password: string) {
-  return apiPost<SessionUser>("/auth/login.php", { email, password });
+export async function login(email: string, password: string) {
+  const session = await apiPost<SessionUser>('/auth/login.php', { email, password });
+  setCsrfToken(session.csrfToken);
+  return session;
 }
 
-export function logout() {
-  return apiPost<null>("/auth/logout.php", {});
+export async function logout() {
+  try {
+    return await apiPost<null>('/auth/logout.php', {});
+  } finally {
+    clearCsrfToken();
+  }
 }
 
-// Checks whether a PHP session is still active (call on app load).
-export function checkSession(): Promise<SessionUser> {
-  return apiRequest<SessionUser>("/auth/logout.php", { method: "GET" });
+export async function checkSession(): Promise<SessionUser> {
+  const session = await apiRequest<SessionUser>('/auth/logout.php', { method: 'GET' });
+  setCsrfToken(session.csrfToken);
+  return session;
 }

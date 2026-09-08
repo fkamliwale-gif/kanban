@@ -2,17 +2,16 @@
 require_once __DIR__ . '/../../config/bootstrap.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    respond(false, 'Use POST', null, 405);
+    respond(false, 'Method not allowed', null, 405);
 }
 
 $input = json_input();
-$name = trim($input['name'] ?? '');
-$email = trim($input['email'] ?? '');
+$name = trim((string) ($input['name'] ?? ''));
+$email = trim((string) ($input['email'] ?? ''));
 $password = (string) ($input['password'] ?? '');
-$role = trim($input['role'] ?? 'Member');
 
-if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 6) {
-    respond(false, 'Please provide a valid name, email, and a password of at least 6 characters.', null, 422);
+if ($name === '' || strlen($name) > 150 || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 150 || strlen($password) < 8 || strlen($password) > 200) {
+    respond(false, 'Please provide a valid name, email, and a password between 8 and 200 characters.', null, 422);
 }
 
 $pdo = get_db();
@@ -23,6 +22,8 @@ if ($check->fetch()) {
     respond(false, 'An account with this email already exists.', null, 409);
 }
 
+// Public registration must never grant a privileged role.
+$role = 'Member';
 $hash = password_hash($password, PASSWORD_DEFAULT);
 
 $insert = $pdo->prepare('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)');
