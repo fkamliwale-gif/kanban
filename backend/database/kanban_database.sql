@@ -1,5 +1,5 @@
--- kanban_database.sql
--- Import this file into phpMyAdmin to create the Kanban Tracker database.
+-- Kanban Tracker database schema
+-- Fresh-install schema for the React + PHP + MySQL application.
 
 CREATE DATABASE IF NOT EXISTS kanban_tracker
   CHARACTER SET utf8mb4
@@ -7,36 +7,28 @@ CREATE DATABASE IF NOT EXISTS kanban_tracker
 
 USE kanban_tracker;
 
--- ---------------------------------------------------------------
--- Users (people who can log in)
--- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(150) NOT NULL,
   email VARCHAR(150) NOT NULL UNIQUE,
-  password VARCHAR(255) NOT NULL,          -- stored with PHP password_hash()
+  password VARCHAR(255) NOT NULL,
   role VARCHAR(50) NOT NULL DEFAULT 'Member',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
--- ---------------------------------------------------------------
--- Team members directory (reusable across projects, as in the UI)
--- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS team_members (
   id INT AUTO_INCREMENT PRIMARY KEY,
   member_name VARCHAR(150) NOT NULL,
   member_email VARCHAR(150) NOT NULL,
   role VARCHAR(50) NOT NULL DEFAULT 'Member',
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_team_members_email (member_email)
 ) ENGINE=InnoDB;
 
--- ---------------------------------------------------------------
--- Projects
--- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS projects (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  user_id INT NOT NULL,                    -- logged-in user who owns/created it
-  manager_id INT NULL,                     -- team_members.id shown as "Manager" in the UI
+  user_id INT NOT NULL,
+  manager_id INT NULL,
   project_name VARCHAR(200) NOT NULL,
   description TEXT,
   status VARCHAR(30) NOT NULL DEFAULT 'Not Started',
@@ -45,26 +37,24 @@ CREATE TABLE IF NOT EXISTS projects (
   due_date DATE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (manager_id) REFERENCES team_members(id) ON DELETE SET NULL
+  FOREIGN KEY (manager_id) REFERENCES team_members(id) ON DELETE SET NULL,
+  INDEX idx_projects_user_id (user_id)
 ) ENGINE=InnoDB;
 
--- Many-to-many: which team members are on which project
 CREATE TABLE IF NOT EXISTS project_team_members (
   project_id INT NOT NULL,
   team_member_id INT NOT NULL,
   PRIMARY KEY (project_id, team_member_id),
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-  FOREIGN KEY (team_member_id) REFERENCES team_members(id) ON DELETE CASCADE
+  FOREIGN KEY (team_member_id) REFERENCES team_members(id) ON DELETE CASCADE,
+  INDEX idx_project_team_member_id (team_member_id)
 ) ENGINE=InnoDB;
 
--- ---------------------------------------------------------------
--- Tasks
--- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tasks (
   id INT AUTO_INCREMENT PRIMARY KEY,
   project_id INT NOT NULL,
-  user_id INT NOT NULL,                    -- who created it
-  assigned_to INT NULL,                    -- team_members.id
+  user_id INT NOT NULL,
+  assigned_to INT NULL,
   title VARCHAR(200) NOT NULL,
   description TEXT,
   status ENUM('To Do','In Progress','Review','Completed') NOT NULL DEFAULT 'To Do',
@@ -75,21 +65,28 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (assigned_to) REFERENCES team_members(id) ON DELETE SET NULL
+  FOREIGN KEY (assigned_to) REFERENCES team_members(id) ON DELETE SET NULL,
+  INDEX idx_tasks_project_id (project_id),
+  INDEX idx_tasks_user_id (user_id),
+  INDEX idx_tasks_assigned_to (assigned_to)
 ) ENGINE=InnoDB;
 
--- ---------------------------------------------------------------
--- Activity log (shown on the Activity page / dashboard)
--- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS activities (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NULL,
+  project_id INT NULL,
+  task_id INT NULL,
+  action_type VARCHAR(50) NOT NULL DEFAULT 'other',
   action VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+  INDEX idx_activities_user_id (user_id),
+  INDEX idx_activities_project_id (project_id),
+  INDEX idx_activities_task_id (task_id),
+  INDEX idx_activities_action_type (action_type)
 ) ENGINE=InnoDB;
 
--- No demo user is seeded here on purpose: a hand-typed password hash
--- can't be verified without running PHP. After importing this file,
--- just use the app's "Sign up" form once to create your first account
--- (it calls register.php, which hashes the password correctly for you).
+-- No demo user is seeded. Use the public signup flow to create the first account.
+-- Public signup always receives the Member role; privileged roles must be managed separately.
