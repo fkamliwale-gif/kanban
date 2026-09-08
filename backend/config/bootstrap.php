@@ -1,11 +1,4 @@
 <?php
-
-// ========================================
-// Kanban Tracker - Bootstrap Configuration
-// Handles CORS, sessions, JSON responses,
-// validation, CSRF and authorization helpers.
-// ========================================
-
 ob_start();
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
@@ -41,7 +34,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
 ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
-
 session_set_cookie_params([
     'lifetime' => 0,
     'path' => '/',
@@ -49,8 +41,8 @@ session_set_cookie_params([
     'httponly' => true,
     'samesite' => 'Lax'
 ]);
-
 session_start();
+
 require_once __DIR__ . '/database.php';
 
 function json_input(): array
@@ -95,7 +87,6 @@ function require_csrf(): void
 
     $provided = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     $expected = $_SESSION['csrf_token'] ?? '';
-
     if ($expected === '' || $provided === '' || !hash_equals($expected, $provided)) {
         respond(false, 'Invalid CSRF token.', null, 403);
     }
@@ -226,23 +217,30 @@ function require_task_manage_permission(PDO $pdo, int $taskId, int $userId): arr
     return $access;
 }
 
-function require_team_manage_permission(PDO $pdo, int $userId): void
+function require_team_manage_permission(PDO $pdo, int $userId, ?int $memberId = null): void
 {
-    $stmt = $pdo->prepare('SELECT role FROM users WHERE id = ?');
-    $stmt->execute([$userId]);
-    $role = $stmt->fetchColumn();
+    $userStmt = $pdo->prepare('SELECT role FROM users WHERE id = ?');
+    $userStmt->execute([$userId]);
+    $userRole = (string) $userStmt->fetchColumn();
 
-    if (in_array($role, ['Admin', 'Project Manager'], true)) {
+    if (in_array($userRole, ['Admin', 'Project Manager'], true)) {
         return;
     }
 
-    $ownerCheck = $pdo->prepare('SELECT 1 FROM projects WHERE user_id = ? LIMIT 1');
-    $ownerCheck->execute([$userId]);
-    if ($ownerCheck->fetchColumn()) {
+    // Any authenticated user may create a team-directory entry for their own work.
+    if ($memberId === null) {
         return;
     }
 
-    respond(false, 'You do not have permission to manage team members.', null, 403);
+    $stmt = $pdo->prepare('SELECT created_by FROM team_members WHERE id = ?');
+    $stmt->execute([$memberId]);
+    $createdBy = $stmt->fetchColumn();
+
+    if ($createdBy !== false && (int) $createdBy === $userId) {
+        return;
+    }
+
+    respond(false, 'You do not have permission to modify this team member.', null, 403);
 }
 
 function validate_member_exists(PDO $pdo, ?int $memberId): void
@@ -265,7 +263,6 @@ function validate_member_exists(PDO $pdo, ?int $memberId): void
 function validate_team_member_ids(PDO $pdo, array $memberIds): array
 {
     $clean = [];
-
     foreach ($memberIds as $memberId) {
         if (!is_scalar($memberId) || !filter_var($memberId, FILTER_VALIDATE_INT)) {
             respond(false, 'Invalid team member id.', null, 422);
@@ -295,11 +292,8 @@ function validate_member_for_project(PDO $pdo, int $projectId, ?int $memberId): 
     }
 
     validate_member_exists($pdo, $memberId);
-
     $stmt = $pdo->prepare(
-        'SELECT 1
-         FROM project_team_members
-         WHERE project_id = ? AND team_member_id = ?'
+        'SELECT 1 FROM project_team_members WHERE project_id = ? AND team_member_id = ?'
     );
     $stmt->execute([$projectId, $memberId]);
 
