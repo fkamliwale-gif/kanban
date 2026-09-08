@@ -16,16 +16,18 @@ if ($id <= 0 || !in_array($status, $allowed, true)) {
 }
 
 $pdo = get_db();
-$titleRow = $pdo->prepare('SELECT title FROM tasks WHERE id = ?');
-$titleRow->execute([$id]);
-$row = $titleRow->fetch();
+$stmt = $pdo->prepare('SELECT title FROM tasks WHERE id = ? AND user_id = ?');
+$stmt->execute([$id, $userId]);
+$row = $stmt->fetch();
+
 if (!$row) {
-    respond(false, 'Task not found', null, 404);
+    respond(false, 'Task not found.', null, 404);
 }
 
-$pdo->prepare('UPDATE tasks SET status = ? WHERE id = ?')->execute([$status, $id]);
+$pdo->prepare('UPDATE tasks SET status = ? WHERE id = ? AND user_id = ?')
+    ->execute([$status, $id, $userId]);
 
-$log = $pdo->prepare('INSERT INTO activities (user_id, action) VALUES (?, ?)');
-$log->execute([$userId, "Task status changed: {$row['title']} → {$status}"]);
+$pdo->prepare('INSERT INTO activities (user_id, action) VALUES (?, ?)')
+    ->execute([$userId, "Task status changed: {$row['title']} → {$status}"]);
 
 respond(true, "Task moved to {$status}");
