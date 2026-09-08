@@ -1,4 +1,4 @@
-import { apiRequest, apiPost } from "./api";
+import { apiPost, apiRequest } from "./api";
 
 export interface SessionUser {
   id: number;
@@ -19,7 +19,10 @@ export function logout() {
   return apiPost<null>("/auth/logout.php", {});
 }
 
-// Checks whether a PHP session is still active (call on app load).
-export function checkSession(): Promise<SessionUser> {
-  return apiRequest<SessionUser>("/auth/logout.php", { method: "GET" });
+export async function checkSession(): Promise<SessionUser | null> {
+  try {
+    return await apiRequest<SessionUser>("/auth/session.php");
+  } catch {
+    return null;
+  }
 }

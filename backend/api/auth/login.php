@@ -1,15 +1,4 @@
 <?php
-
-header("Access-Control-Allow-Origin: http://localhost:5173");
-header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
-header("Content-Type: application/json");
-
-// Handle preflight request
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit();
-}
 require_once __DIR__ . '/../../config/bootstrap.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -20,8 +9,12 @@ $input = json_input();
 $email = trim($input['email'] ?? '');
 $password = (string) ($input['password'] ?? '');
 
+if (!filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '') {
+    respond(false, 'Please enter a valid email and password.', null, 422);
+}
+
 $pdo = get_db();
-$stmt = $pdo->prepare('SELECT id, name, email, password, role FROM users WHERE email = ?');
+$stmt = $pdo->prepare('SELECT id, name, email, password, role FROM users WHERE email = ? LIMIT 1');
 $stmt->execute([$email]);
 $user = $stmt->fetch();
 
@@ -29,8 +22,11 @@ if (!$user || !password_verify($password, $user['password'])) {
     respond(false, 'Invalid email or password.', null, 401);
 }
 
-$_SESSION['user_id'] = $user['id'];
+session_regenerate_id(true);
+
+$_SESSION['user_id'] = (int) $user['id'];
 $_SESSION['user_name'] = $user['name'];
+$_SESSION['user_email'] = $user['email'];
 $_SESSION['user_role'] = $user['role'];
 
 unset($user['password']);
