@@ -1,35 +1,156 @@
-# React + TypeScript + Vite
+# Kanban Tracker / TaskFlow
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A simple project-management and Kanban application built for a college-level project.
 
-Currently, two official plugins are available:
+## Technology stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React 19 + TypeScript
+- Vite
+- PHP 8+
+- PDO
+- MySQL
+- PHP sessions
 
-## React Compiler
+## Features
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+- Signup and login
+- Session-based authentication
+- Projects and project details
+- Kanban task workflow
+- Task assignment and priorities
+- Team directory
+- Activity tracking
+- Dashboard and reports
+- Calendar view
 
-Note: This will impact Vite dev & build performances.
-You can also try [the experimental native React Compiler support in plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md#rust-react-compiler) by using `compiler: true` in the plugin options instead of using the Babel plugin.
+Kanban columns are intentionally simple:
 
-## Expanding the Oxlint configuration
+`To Do` → `In Progress` → `Review` → `Completed`
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+## Local setup
+
+### 1. Frontend
+
+Install Node.js, then from the repository root run:
+
+```bash
+npm install
+npm run dev
+```
+
+Vite runs the frontend at `http://localhost:5173` by default.
+
+### 2. Backend
+
+Install XAMPP or another PHP/Apache/MySQL environment.
+
+Place the repository in the Apache web root. With XAMPP this is commonly:
+
+```text
+C:\xampp\htdocs\kanban
+```
+
+The frontend expects the PHP API at:
+
+```text
+http://localhost/kanban/backend/api
+```
+
+You can override this through `VITE_API_BASE_URL`.
+
+### 3. Database
+
+Open phpMyAdmin and import:
+
+```text
+backend/database/kanban_database.sql
+```
+
+This creates the `kanban_tracker` database and required tables.
+
+If you already have a database created from an older version of the project, run:
+
+```text
+backend/database/upgrade_security_audit.sql
+```
+
+Do not run the upgrade migration on a database created from the updated fresh-install schema.
+
+### 4. Environment configuration
+
+Copy `.env.example` to your local configuration as appropriate.
+
+Frontend configuration uses:
+
+```text
+VITE_API_BASE_URL=http://localhost/kanban/backend/api
+```
+
+PHP reads database and CORS values from the server process environment:
+
+```text
+FRONTEND_URL=http://localhost:5173
+KANBAN_DB_HOST=localhost
+KANBAN_DB_NAME=kanban_tracker
+KANBAN_DB_USER=root
+KANBAN_DB_PASS=
+```
+
+Real credentials must not be committed.
+
+## Authentication and security
+
+The application uses PHP sessions with HttpOnly cookies and CSRF protection for authenticated state-changing requests.
+
+Public signup always creates a `Member` account. Privileged roles must not be self-assigned through the signup request.
+
+Backend authorization checks resource ownership or project membership before protected project and task operations.
+
+Production deployments should use HTTPS so the session cookie is marked secure.
+
+## API response format
+
+Successful responses use:
 
 ```json
 {
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
+  "success": true,
+  "message": "Operation completed successfully",
+  "data": {}
 }
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Errors use the same structure with an appropriate HTTP status code.
+
+## Development checks
+
+Run:
+
+```bash
+npm run build
+npm run lint
+```
+
+The repository also includes GitHub Actions checks for the frontend build/lint and PHP syntax.
+
+## Project structure
+
+```text
+backend/
+  api/
+    auth/
+    dashboard/
+    projects/
+    tasks/
+    teams/
+  config/
+  database/
+
+src/
+  services/
+  assets/
+  App.tsx
+  App.css
+```
+
+The existing UI and Kanban workflow are intentionally kept simple rather than introducing unnecessary enterprise features.
