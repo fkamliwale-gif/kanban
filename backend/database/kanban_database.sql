@@ -18,10 +18,13 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS team_members (
   id INT AUTO_INCREMENT PRIMARY KEY,
+  created_by INT NULL,
   member_name VARCHAR(150) NOT NULL,
   member_email VARCHAR(150) NOT NULL,
   role VARCHAR(50) NOT NULL DEFAULT 'Member',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_team_members_created_by (created_by),
   INDEX idx_team_members_email (member_email)
 ) ENGINE=InnoDB;
 
@@ -88,5 +91,4 @@ CREATE TABLE IF NOT EXISTS activities (
   INDEX idx_activities_action_type (action_type)
 ) ENGINE=InnoDB;
 
--- No demo user is seeded. Use the public signup flow to create the first account.
--- Public signup always receives the Member role; privileged roles must be managed separately.
+-- No demo user is seeded. Public signup always creates Member.
