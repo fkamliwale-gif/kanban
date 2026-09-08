@@ -19,7 +19,7 @@ if ($name === '' || strlen($name) > 150 || !filter_var($email, FILTER_VALIDATE_E
 
 $role = validate_enum($role, ['Admin', 'Project Manager', 'Developer', 'Designer', 'Tester', 'Member'], 'team member role');
 $pdo = get_db();
-require_team_manage_permission($pdo, $userId);
+require_team_manage_permission($pdo, $userId, $id > 0 ? $id : null);
 
 try {
     if ($id > 0) {
@@ -34,15 +34,15 @@ try {
         $action = "Team member updated: {$name}";
         $actionType = 'member_updated';
     } else {
-        $stmt = $pdo->prepare('INSERT INTO team_members (member_name, member_email, role) VALUES (?, ?, ?)');
-        $stmt->execute([$name, $email, $role]);
+        $stmt = $pdo->prepare('INSERT INTO team_members (created_by, member_name, member_email, role) VALUES (?, ?, ?, ?)');
+        $stmt->execute([$userId, $name, $email, $role]);
         $id = (int) $pdo->lastInsertId();
         $action = "Team member added: {$name}";
         $actionType = 'member_added';
     }
 
     log_activity($pdo, $userId, $action, $actionType);
-    respond(true, $action, ['id' => $id], $id > 0 ? 200 : 201);
+    respond(true, $action, ['id' => $id]);
 } catch (Throwable $e) {
     error_log('Team member save failed: ' . $e->getMessage());
     respond(false, 'Unable to save team member.', null, 500);
