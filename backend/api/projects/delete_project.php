@@ -26,7 +26,8 @@ if (!$row) {
 try {
     $pdo->beginTransaction();
     $pdo->prepare('DELETE FROM projects WHERE id = ?')->execute([(int) $id]);
-    log_activity($pdo, $userId, "Project deleted: {$row['project_name']}", 'project_deleted', (int) $id);
+    // The project no longer exists, so leave project_id NULL for this audit event.
+    log_activity($pdo, $userId, "Project deleted: {$row['project_name']}", 'project_deleted', null, null);
     $pdo->commit();
     respond(true, 'Project deleted');
 } catch (Throwable $e) {
