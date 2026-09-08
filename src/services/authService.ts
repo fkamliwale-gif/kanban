@@ -8,7 +8,9 @@ export interface SessionUser {
   csrfToken: string;
 }
 
-export async function register(name: string, email: string, password: string) {
+// The role parameter is retained for frontend compatibility, but the backend
+// deliberately ignores it for public registration and always creates Member.
+export async function register(name: string, email: string, password: string, _role?: string) {
   return apiPost<{ id: number }>('/auth/register.php', { name, email, password });
 }
 
