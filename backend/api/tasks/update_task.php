@@ -29,8 +29,7 @@ $priority = validate_enum($priority, ['Low', 'Medium', 'High', 'Critical'], 'tas
 validate_date_range($startDate, $dueDate);
 
 $pdo = get_db();
-$oldAccess = require_task_manage_permission($pdo, (int) $id, $userId);
-// Moving a task to another project requires manage access to the new project too.
+require_task_manage_permission($pdo, (int) $id, $userId);
 require_project_manage_permission($pdo, (int) $projectId, $userId);
 validate_member_for_project($pdo, (int) $projectId, $assignedTo);
 
