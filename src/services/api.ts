@@ -1,33 +1,131 @@
-// Base URL for the PHP backend running under XAMPP.
-// Adjust the folder name if you place the backend somewhere other than
-// C:\xampp\htdocs\kanban-backend\backend
-export const API_BASE = "http://localhost/kanban-backend/backend/api";
+// ========================================
+// Kanban Tracker API Configuration
+// ========================================
 
-type ApiResponse<T> = { success: boolean; message: string; data: T };
+
+// PHP backend URL running through XAMPP
+
+export const API_BASE =
+  "http://localhost/kanban/backend/api";
+
+
+// ========================================
+// API RESPONSE TYPE
+// ========================================
+
+type ApiResponse<T> = {
+
+  success: boolean;
+
+  message: string;
+
+  data: T;
+
+};
+
+
+// ========================================
+// MAIN API REQUEST FUNCTION
+// ========================================
 
 export async function apiRequest<T = unknown>(
+
   path: string,
+
   options: RequestInit = {}
+
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    credentials: "include", // send the PHP session cookie
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options
-  });
+
+
+  const response = await fetch(
+
+    `${API_BASE}${path}`,
+
+    {
+
+      ...options,
+
+
+      // Required for PHP sessions
+      credentials: "include",
+
+
+      headers: {
+
+        "Content-Type": "application/json",
+
+        ...(options.headers || {})
+
+      }
+
+    }
+
+  );
+
 
   let result: ApiResponse<T>;
+
+
   try {
+
     result = await response.json();
-  } catch {
-    throw new Error(`Server returned an unexpected response (status ${response.status}).`);
+
   }
 
-  if (!result.success) {
-    throw new Error(result.message || "Request failed");
+  catch {
+
+    throw new Error(
+
+      `Server returned an unexpected response (status ${response.status}).`
+
+    );
+
   }
+
+
+  // Handle API errors
+
+  if (!response.ok || !result.success) {
+
+    throw new Error(
+
+      result.message || "Request failed"
+
+    );
+
+  }
+
+
   return result.data;
+
 }
 
-export function apiPost<T = unknown>(path: string, body: unknown): Promise<T> {
-  return apiRequest<T>(path, { method: "POST", body: JSON.stringify(body) });
+
+// ========================================
+// POST REQUEST FUNCTION
+// ========================================
+
+export function apiPost<T = unknown>(
+
+  path: string,
+
+  body: unknown
+
+): Promise<T> {
+
+
+  return apiRequest<T>(
+
+    path,
+
+    {
+
+      method: "POST",
+
+      body: JSON.stringify(body)
+
+    }
+
+  );
+
 }
