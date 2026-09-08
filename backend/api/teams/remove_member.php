@@ -14,7 +14,7 @@ if (!$id) {
 }
 
 $pdo = get_db();
-require_team_manage_permission($pdo, $userId);
+require_team_manage_permission($pdo, $userId, (int) $id);
 
 $row = $pdo->prepare('SELECT member_name FROM team_members WHERE id = ?');
 $row->execute([(int) $id]);
