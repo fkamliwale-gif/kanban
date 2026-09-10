@@ -3,3 +3,35 @@
 @media(max-width:1050px){.sidebar{width:205px}.main-content{padding:0 20px 30px}.stats-grid{grid-template-columns:repeat(2,1fr)}.detail-stats{grid-template-columns:repeat(3,1fr)}.dashboard-grid{grid-template-columns:1fr}.auth-container{border-radius:30px}.auth-left,.auth-right{padding:30px}.auth-copy h1{font-size:32px}}
 @media(max-width:750px){.app-shell{display:block}.sidebar{width:100%;min-height:auto;padding:12px}.sidebar-brand{margin-bottom:10px}.sidebar nav{display:grid;grid-template-columns:repeat(4,1fr)}.sidebar nav button{padding:9px 5px;text-align:center;font-size:11px}.sidebar nav strong{display:block;width:auto}.logout-side{position:absolute;right:8px;top:8px;border:0;padding:8px;font-size:0}.logout-side:after{content:"↪";font-size:18px}.main-content{padding:0 12px 25px}.topbar{height:65px}.mobile-title{font-size:20px;font-weight:700;color:#4f46e5}.top-user>div:last-child{display:none}.project-grid,.team-grid,.report-grid,.settings-grid{grid-template-columns:1fr}.stats-grid{grid-template-columns:1fr 1fr}.page-title{align-items:flex-start}.page-title h1{font-size:25px}.toolbar{display:block}.filter-row{margin-top:10px}.detail-head{display:block}.detail-meta{margin-top:15px;display:block}.detail-meta span{display:block;margin-top:6px}.detail-stats{grid-template-columns:repeat(2,1fr)}.kanban-board{grid-template-columns:repeat(4,220px)}.calendar-day{min-height:80px}.calendar-task{font-size:9px}.auth-container{display:block;min-height:auto}.auth-left,.auth-right{width:100%}.auth-left{padding:25px}.auth-copy{margin-top:35px}.mini-kanban{margin-top:30px}.auth-right{padding:30px 25px}.form-grid{grid-template-columns:1fr}.full-field{grid-column:auto}}
 @media(max-width:450px){.stats-grid{grid-template-columns:1fr}.sidebar nav{grid-template-columns:repeat(4,1fr)}.sidebar nav button:nth-child(n+5){display:none}.page-title{display:block}.page-title .primary-btn{margin-top:12px}.calendar-grid.weekday b{font-size:9px}.calendar-day{min-height:65px;padding:4px}.calendar-task{padding:3px}.auth-copy h1{font-size:28px}}
+
+
+/* Professional UI/UX polish */
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulseSoft{0%,100%{box-shadow:0 8px 25px rgba(79,70,229,.08)}50%{box-shadow:0 14px 32px rgba(79,70,229,.16)}}
+@keyframes progressGrow{from{width:0!important}}
+.main-content>*{animation:fadeUp .45s ease both}
+.sidebar{box-shadow:10px 0 30px rgba(49,46,129,.10)}
+.sidebar nav button{transition:transform .2s ease,background .2s ease,opacity .2s ease}
+.sidebar nav button:hover{transform:translateX(4px)}
+.primary-btn,.secondary-btn,.danger-btn{transition:transform .18s ease,box-shadow .18s ease,filter .18s ease}
+.primary-btn:hover,.secondary-btn:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(79,70,229,.22)}
+.danger-btn:hover{transform:translateY(-2px)}
+.stat-card,.panel,.project-card,.member-card{border:1px solid rgba(79,70,229,.06);transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease}
+.stat-card:hover,.project-card:hover,.member-card:hover{transform:translateY(-5px);box-shadow:0 18px 35px rgba(79,70,229,.12);border-color:rgba(99,102,241,.18)}
+.panel:hover{box-shadow:0 12px 30px rgba(79,70,229,.09)}
+.stat-card{position:relative;overflow:hidden}
+.stat-card:after{content:"";position:absolute;width:70px;height:70px;right:-28px;top:-28px;border-radius:50%;background:rgba(99,102,241,.05)}
+.progress-track span,.big-progress span,.bar-row i{animation:progressGrow .8s ease-out both}
+.project-card,.member-card,.task-card{animation:fadeUp .45s ease both}
+.task-card{transition:transform .2s ease,box-shadow .2s ease}
+.task-card:hover{transform:translateY(-3px);box-shadow:0 12px 25px rgba(79,70,229,.13)}
+.modal-backdrop{backdrop-filter:blur(6px)}
+.modal{animation:fadeUp .25s ease both;box-shadow:0 25px 70px rgba(15,23,42,.22)}
+.toast{animation:fadeUp .25s ease both;border-left:3px solid #a5b4fc}
+.top-user{padding:6px 8px;border-radius:16px;transition:background .2s ease}
+.top-user:hover{background:#fff;box-shadow:0 6px 18px rgba(79,70,229,.07)}
+.permission-note{margin:-5px 0 18px;padding:12px 15px;border:1px solid #ddd6fe;background:linear-gradient(135deg,#f5f3ff,#faf5ff);color:#5b21b6;border-radius:14px;font-size:13px;font-weight:600;animation:fadeUp .35s ease both}
+.card-actions button{transition:transform .15s ease,background .15s ease}
+.card-actions button:hover{transform:translateY(-1px);background:#f5f3ff;border-radius:8px}
+.search{transition:border-color .2s ease,box-shadow .2s ease,transform .2s ease}
+.search:focus{transform:translateY(-1px)}
